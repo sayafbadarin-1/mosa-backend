@@ -21,7 +21,8 @@ const storageBooks = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
     folder: "mosa-books",
-    resource_type: "raw",
+    resource_type: "auto",   // يحدد النوع تلقائيًا
+    format: "pdf",           // يجبر Cloudinary يحفظ الملف بصيغة PDF
   },
 });
 const storageTips = new CloudinaryStorage({
@@ -141,5 +142,6 @@ app.delete("/deleteTip/:index", (req, res) => {
 
 app.get("/", (req, res) => res.send("✅ السيرفر متصل بـ Cloudinary ويعمل"));
 app.listen(4000, () => console.log("🚀 السيرفر يعمل على http://localhost:4000"));
+
 
 
