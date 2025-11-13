@@ -11,9 +11,9 @@ app.use(express.json());
 
 /* إعداد Cloudinary */
 cloudinary.config({
-  cloud_name: "ضع_Cloud_Name_من_Dashboard",
-  api_key: "ضع_API_Key_من_Dashboard",
-  api_secret: "ضع_API_Secret_من_Dashboard",
+  cloud_name: "dkdnq0zj3",
+  api_key: "199116839454328",
+  api_secret: "wIMx8MXvHjbElAgXoe2XTDvnzuI",
 });
 
 /* التخزين على Cloudinary */
@@ -141,3 +141,4 @@ app.delete("/deleteTip/:index", (req, res) => {
 
 app.get("/", (req, res) => res.send("✅ السيرفر متصل بـ Cloudinary ويعمل"));
 app.listen(4000, () => console.log("🚀 السيرفر يعمل على http://localhost:4000"));
+
