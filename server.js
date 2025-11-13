@@ -21,14 +21,14 @@ const storageBooks = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
     folder: "mosa-books",
-    resource_type: "auto",
+    resource_type: "raw",
   },
 });
 const storageTips = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
     folder: "mosa-tips",
-    resource_type: "auto",
+    resource_type: "raw",
   },
 });
 
@@ -141,4 +141,5 @@ app.delete("/deleteTip/:index", (req, res) => {
 
 app.get("/", (req, res) => res.send("✅ السيرفر متصل بـ Cloudinary ويعمل"));
 app.listen(4000, () => console.log("🚀 السيرفر يعمل على http://localhost:4000"));
+
 
