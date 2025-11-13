@@ -13,16 +13,17 @@ const DATA_DIR = ".";
 const BOOKS_DB = path.join(DATA_DIR, "books.json");
 const TIPS_DB = path.join(DATA_DIR, "tips.json");
 
-const ADMIN_PASS = process.env.ADMIN_PASS || "sayaf1820"; // غيّر القيمة في بيئة الاستضافة
+// ضع كلمة المرور في متغير بيئة ADMIN_PASS عند النشر
+const ADMIN_PASS = process.env.ADMIN_PASS || "sayaf1820";
 
-// helpers
+// --- helpers ---
 async function readJson(filePath) {
   try {
     const txt = await fs.readFile(filePath, "utf8");
     return JSON.parse(txt || "[]");
   } catch (err) {
     if (err.code === "ENOENT") {
-      await fs.writeFile(filePath, "[]");
+      await fs.writeFile(filePath, "[]", "utf8");
       return [];
     }
     throw err;
@@ -32,6 +33,7 @@ async function writeJson(filePath, data) {
   await fs.writeFile(filePath, JSON.stringify(data, null, 2), "utf8");
 }
 function checkAuth(req) {
+  // تقبّل كلمة المرور من الهيدر x-admin-pass أو من body.password (مرن للاختبار)
   const pass = req.headers["x-admin-pass"] || (req.body && req.body.password);
   return pass === ADMIN_PASS;
 }
@@ -42,12 +44,12 @@ function makeId() {
 // تأكد من وجود ملفات DB عند التشغيل
 (async () => {
   await Promise.all([
-    fs.access(BOOKS_DB).catch(() => fs.writeFile(BOOKS_DB, "[]")),
-    fs.access(TIPS_DB).catch(() => fs.writeFile(TIPS_DB, "[]")),
+    fs.access(BOOKS_DB).catch(() => fs.writeFile(BOOKS_DB, "[]", "utf8")),
+    fs.access(TIPS_DB).catch(() => fs.writeFile(TIPS_DB, "[]", "utf8")),
   ]);
 })();
 
-/* ====== Books ====== */
+/* ===== Books ===== */
 // GET /books
 app.get("/books", async (req, res) => {
   try {
@@ -116,7 +118,7 @@ app.delete("/books/:id", async (req, res) => {
   }
 });
 
-/* ====== Tips ====== */
+/* ===== Tips ===== */
 // GET /tips
 app.get("/tips", async (req, res) => {
   try {
