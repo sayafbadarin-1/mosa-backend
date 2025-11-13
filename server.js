@@ -4,7 +4,7 @@ const cors = require("cors");
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json()); // ← ضروري لقراءة body
 
 const BOOKS_DB = "./books.json";
 const TIPS_DB = "./tips.json";
@@ -24,10 +24,13 @@ app.post("/uploadBook", (req, res) => {
   if (password !== ADMIN_PASS)
     return res.status(403).json({ message: "⚠️ كلمة السر غير صحيحة." });
   if (!title || !url)
-    return res.status(400).json({ message: "الرجاء إدخال الاسم والرابط." });
+    return res
+      .status(400)
+      .json({ message: "الرجاء إدخال الاسم والرابط الصحيح." });
 
   const books = JSON.parse(fs.readFileSync(BOOKS_DB));
-  books.push({ title, url });
+  const newBook = { title, url };
+  books.push(newBook);
   fs.writeFileSync(BOOKS_DB, JSON.stringify(books, null, 2));
   res.json({ message: "✅ تم إضافة الكتاب بنجاح!" });
 });
@@ -35,7 +38,6 @@ app.post("/uploadBook", (req, res) => {
 app.put("/editBook/:index", (req, res) => {
   if (req.body.password !== ADMIN_PASS)
     return res.status(403).json({ message: "⚠️ كلمة السر غير صحيحة." });
-
   const books = JSON.parse(fs.readFileSync(BOOKS_DB));
   const i = parseInt(req.params.index);
   if (i < 0 || i >= books.length)
@@ -50,12 +52,10 @@ app.put("/editBook/:index", (req, res) => {
 app.delete("/deleteBook/:index", (req, res) => {
   if (req.body.password !== ADMIN_PASS)
     return res.status(403).json({ message: "⚠️ كلمة السر غير صحيحة." });
-
   const books = JSON.parse(fs.readFileSync(BOOKS_DB));
   const i = parseInt(req.params.index);
   if (i < 0 || i >= books.length)
     return res.status(404).json({ message: "الكتاب غير موجود." });
-
   books.splice(i, 1);
   fs.writeFileSync(BOOKS_DB, JSON.stringify(books, null, 2));
   res.json({ message: "🗑️ تم حذف الكتاب بنجاح." });
@@ -70,6 +70,7 @@ app.get("/tips", (req, res) => {
 app.post("/uploadTip", (req, res) => {
   if (req.body.password !== ADMIN_PASS)
     return res.status(403).json({ message: "⚠️ كلمة السر غير صحيحة." });
+
   const tips = JSON.parse(fs.readFileSync(TIPS_DB));
   tips.push({ text: req.body.text || "" });
   fs.writeFileSync(TIPS_DB, JSON.stringify(tips, null, 2));
@@ -101,7 +102,7 @@ app.delete("/deleteTip/:index", (req, res) => {
 });
 
 app.get("/", (req, res) =>
-  res.send("✅ السيرفر يعمل – نظام Google Drive مع فيديوهات.")
+  res.send("✅ السيرفر يعمل – موقع الشيخ موسى الخلايلة")
 );
 
 app.listen(4000, () =>
