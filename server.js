@@ -8,20 +8,17 @@ app.use(cors());
 app.use(express.json());
 app.use("/uploads", express.static("uploads"));
 
-// مجلد رفع الكتب
 const storageBooks = multer.diskStorage({
   destination: "uploads",
   filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname)
 });
 const uploadBook = multer({ storage: storageBooks });
 
-// ملفات قاعدة البيانات
 const BOOKS_DB = "./books.json";
 const TIPS_DB = "./tips.json";
 if (!fs.existsSync(BOOKS_DB)) fs.writeFileSync(BOOKS_DB, "[]");
 if (!fs.existsSync(TIPS_DB)) fs.writeFileSync(TIPS_DB, "[]");
 
-// كلمة السر
 const ADMIN_PASS = "sayaf1820";
 
 // ========== الكتب ==========
@@ -52,16 +49,13 @@ app.post("/uploadTip", (req, res) => {
     return res.status(403).json({ message: "⚠️ كلمة السر غير صحيحة." });
 
   const tips = JSON.parse(fs.readFileSync(TIPS_DB));
-  const newTip = {
-    title: req.body.title,
-    text: req.body.text || null
-  };
+  const newTip = { title: req.body.title, text: req.body.text || null };
   tips.push(newTip);
   fs.writeFileSync(TIPS_DB, JSON.stringify(tips, null, 2));
   res.json({ message: "✅ تم رفع الإرشاد بنجاح!" });
 });
 
-// تعديل إرشاد
+// ===== تعديل إرشاد =====
 app.put("/editTip/:index", (req, res) => {
   if (req.body.password !== ADMIN_PASS)
     return res.status(403).json({ message: "⚠️ كلمة السر غير صحيحة." });
@@ -76,7 +70,7 @@ app.put("/editTip/:index", (req, res) => {
   res.json({ message: "✅ تم تعديل الإرشاد بنجاح!" });
 });
 
-// حذف إرشاد
+// ===== حذف إرشاد =====
 app.delete("/deleteTip/:index", (req, res) => {
   if (req.body.password !== ADMIN_PASS)
     return res.status(403).json({ message: "⚠️ كلمة السر غير صحيحة." });
