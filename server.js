@@ -1,110 +1,187 @@
+// server.js
 const express = require("express");
-const fs = require("fs");
+const fs = require("fs").promises;
 const cors = require("cors");
+const { v4: uuidv4 } = require("uuid");
+const path = require("path");
 
 const app = express();
 app.use(cors());
-app.use(express.json()); // ← ضروري لقراءة body
+app.use(express.json());
 
-const BOOKS_DB = "./books.json";
-const TIPS_DB = "./tips.json";
-if (!fs.existsSync(BOOKS_DB)) fs.writeFileSync(BOOKS_DB, "[]");
-if (!fs.existsSync(TIPS_DB)) fs.writeFileSync(TIPS_DB, "[]");
+const DATA_DIR = ".";
+const BOOKS_DB = path.join(DATA_DIR, "books.json");
+const TIPS_DB = path.join(DATA_DIR, "tips.json");
 
-const ADMIN_PASS = "sayaf1820";
+const ADMIN_PASS = process.env.ADMIN_PASS || "sayaf1820"; // غيّر القيمة في بيئة الاستضافة
 
-/* ========== الكتب ========== */
-app.get("/books", (req, res) => {
-  const books = JSON.parse(fs.readFileSync(BOOKS_DB));
-  res.json(books);
+// helpers
+async function readJson(filePath) {
+  try {
+    const txt = await fs.readFile(filePath, "utf8");
+    return JSON.parse(txt || "[]");
+  } catch (err) {
+    if (err.code === "ENOENT") {
+      await fs.writeFile(filePath, "[]");
+      return [];
+    }
+    throw err;
+  }
+}
+async function writeJson(filePath, data) {
+  await fs.writeFile(filePath, JSON.stringify(data, null, 2), "utf8");
+}
+function checkAuth(req) {
+  const pass = req.headers["x-admin-pass"] || (req.body && req.body.password);
+  return pass === ADMIN_PASS;
+}
+function makeId() {
+  return uuidv4();
+}
+
+// تأكد من وجود ملفات DB عند التشغيل
+(async () => {
+  await Promise.all([
+    fs.access(BOOKS_DB).catch(() => fs.writeFile(BOOKS_DB, "[]")),
+    fs.access(TIPS_DB).catch(() => fs.writeFile(TIPS_DB, "[]")),
+  ]);
+})();
+
+/* ====== Books ====== */
+// GET /books
+app.get("/books", async (req, res) => {
+  try {
+    const books = await readJson(BOOKS_DB);
+    const normalized = books.map(b => (b.id ? b : { id: makeId(), ...b }));
+    await writeJson(BOOKS_DB, normalized);
+    res.json({ ok: true, data: normalized });
+  } catch (err) {
+    console.error("GET /books:", err);
+    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+  }
 });
 
-app.post("/uploadBook", (req, res) => {
-  const { password, title, url } = req.body;
-  if (password !== ADMIN_PASS)
-    return res.status(403).json({ message: "⚠️ كلمة السر غير صحيحة." });
-  if (!title || !url)
-    return res
-      .status(400)
-      .json({ message: "الرجاء إدخال الاسم والرابط الصحيح." });
+// POST /books
+app.post("/books", async (req, res) => {
+  try {
+    if (!checkAuth(req)) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
+    const { title, url } = req.body;
+    if (!title || !url) return res.status(400).json({ ok: false, message: "الرجاء إدخال الاسم والرابط." });
 
-  const books = JSON.parse(fs.readFileSync(BOOKS_DB));
-  const newBook = { title, url };
-  books.push(newBook);
-  fs.writeFileSync(BOOKS_DB, JSON.stringify(books, null, 2));
-  res.json({ message: "✅ تم إضافة الكتاب بنجاح!" });
+    const books = await readJson(BOOKS_DB);
+    const newBook = { id: makeId(), title, url, createdAt: Date.now() };
+    books.push(newBook);
+    await writeJson(BOOKS_DB, books);
+    res.json({ ok: true, message: "تمت إضافة الكتاب بنجاح", data: newBook });
+  } catch (err) {
+    console.error("POST /books:", err);
+    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+  }
 });
 
-app.put("/editBook/:index", (req, res) => {
-  if (req.body.password !== ADMIN_PASS)
-    return res.status(403).json({ message: "⚠️ كلمة السر غير صحيحة." });
-  const books = JSON.parse(fs.readFileSync(BOOKS_DB));
-  const i = parseInt(req.params.index);
-  if (i < 0 || i >= books.length)
-    return res.status(404).json({ message: "الكتاب غير موجود." });
+// PUT /books/:id
+app.put("/books/:id", async (req, res) => {
+  try {
+    if (!checkAuth(req)) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
+    const id = req.params.id;
+    const books = await readJson(BOOKS_DB);
+    const idx = books.findIndex(b => b.id === id);
+    if (idx === -1) return res.status(404).json({ ok: false, message: "الكتاب غير موجود." });
 
-  books[i].title = req.body.title || books[i].title;
-  books[i].url = req.body.url || books[i].url;
-  fs.writeFileSync(BOOKS_DB, JSON.stringify(books, null, 2));
-  res.json({ message: "✅ تم تعديل بيانات الكتاب بنجاح!" });
+    books[idx].title = req.body.title || books[idx].title;
+    books[idx].url = req.body.url || books[idx].url;
+    books[idx].updatedAt = Date.now();
+    await writeJson(BOOKS_DB, books);
+    res.json({ ok: true, message: "تم تعديل الكتاب", data: books[idx] });
+  } catch (err) {
+    console.error("PUT /books/:id:", err);
+    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+  }
 });
 
-app.delete("/deleteBook/:index", (req, res) => {
-  if (req.body.password !== ADMIN_PASS)
-    return res.status(403).json({ message: "⚠️ كلمة السر غير صحيحة." });
-  const books = JSON.parse(fs.readFileSync(BOOKS_DB));
-  const i = parseInt(req.params.index);
-  if (i < 0 || i >= books.length)
-    return res.status(404).json({ message: "الكتاب غير موجود." });
-  books.splice(i, 1);
-  fs.writeFileSync(BOOKS_DB, JSON.stringify(books, null, 2));
-  res.json({ message: "🗑️ تم حذف الكتاب بنجاح." });
+// DELETE /books/:id
+app.delete("/books/:id", async (req, res) => {
+  try {
+    if (!checkAuth(req)) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
+    const id = req.params.id;
+    const books = await readJson(BOOKS_DB);
+    const idx = books.findIndex(b => b.id === id);
+    if (idx === -1) return res.status(404).json({ ok: false, message: "الكتاب غير موجود." });
+    const removed = books.splice(idx, 1)[0];
+    await writeJson(BOOKS_DB, books);
+    res.json({ ok: true, message: "تم حذف الكتاب", data: removed });
+  } catch (err) {
+    console.error("DELETE /books/:id:", err);
+    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+  }
 });
 
-/* ========== الإرشادات ========== */
-app.get("/tips", (req, res) => {
-  const tips = JSON.parse(fs.readFileSync(TIPS_DB));
-  res.json(tips);
+/* ====== Tips ====== */
+// GET /tips
+app.get("/tips", async (req, res) => {
+  try {
+    const tips = await readJson(TIPS_DB);
+    const normalized = tips.map(t => (t.id ? t : { id: makeId(), ...t }));
+    await writeJson(TIPS_DB, normalized);
+    res.json({ ok: true, data: normalized });
+  } catch (err) {
+    console.error("GET /tips:", err);
+    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+  }
 });
 
-app.post("/uploadTip", (req, res) => {
-  if (req.body.password !== ADMIN_PASS)
-    return res.status(403).json({ message: "⚠️ كلمة السر غير صحيحة." });
-
-  const tips = JSON.parse(fs.readFileSync(TIPS_DB));
-  tips.push({ text: req.body.text || "" });
-  fs.writeFileSync(TIPS_DB, JSON.stringify(tips, null, 2));
-  res.json({ message: "✅ تم إضافة الإرشاد بنجاح!" });
+// POST /tips
+app.post("/tips", async (req, res) => {
+  try {
+    if (!checkAuth(req)) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
+    const text = req.body.text || "";
+    const tips = await readJson(TIPS_DB);
+    const newTip = { id: makeId(), text, createdAt: Date.now() };
+    tips.push(newTip);
+    await writeJson(TIPS_DB, tips);
+    res.json({ ok: true, message: "تمت إضافة الإرشاد بنجاح", data: newTip });
+  } catch (err) {
+    console.error("POST /tips:", err);
+    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+  }
 });
 
-app.put("/editTip/:index", (req, res) => {
-  if (req.body.password !== ADMIN_PASS)
-    return res.status(403).json({ message: "⚠️ كلمة السر غير صحيحة." });
-  const tips = JSON.parse(fs.readFileSync(TIPS_DB));
-  const i = parseInt(req.params.index);
-  if (i < 0 || i >= tips.length)
-    return res.status(404).json({ message: "الإرشاد غير موجود." });
-  tips[i].text = req.body.text || tips[i].text;
-  fs.writeFileSync(TIPS_DB, JSON.stringify(tips, null, 2));
-  res.json({ message: "✅ تم تعديل الإرشاد بنجاح!" });
+// PUT /tips/:id
+app.put("/tips/:id", async (req, res) => {
+  try {
+    if (!checkAuth(req)) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
+    const id = req.params.id;
+    const tips = await readJson(TIPS_DB);
+    const idx = tips.findIndex(t => t.id === id);
+    if (idx === -1) return res.status(404).json({ ok: false, message: "الإرشاد غير موجود." });
+    tips[idx].text = req.body.text || tips[idx].text;
+    tips[idx].updatedAt = Date.now();
+    await writeJson(TIPS_DB, tips);
+    res.json({ ok: true, message: "تم تعديل الإرشاد", data: tips[idx] });
+  } catch (err) {
+    console.error("PUT /tips/:id:", err);
+    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+  }
 });
 
-app.delete("/deleteTip/:index", (req, res) => {
-  if (req.body.password !== ADMIN_PASS)
-    return res.status(403).json({ message: "⚠️ كلمة السر غير صحيحة." });
-  const tips = JSON.parse(fs.readFileSync(TIPS_DB));
-  const i = parseInt(req.params.index);
-  if (i < 0 || i >= tips.length)
-    return res.status(404).json({ message: "الإرشاد غير موجود." });
-  tips.splice(i, 1);
-  fs.writeFileSync(TIPS_DB, JSON.stringify(tips, null, 2));
-  res.json({ message: "🗑️ تم حذف الإرشاد بنجاح." });
+// DELETE /tips/:id
+app.delete("/tips/:id", async (req, res) => {
+  try {
+    if (!checkAuth(req)) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
+    const id = req.params.id;
+    const tips = await readJson(TIPS_DB);
+    const idx = tips.findIndex(t => t.id === id);
+    if (idx === -1) return res.status(404).json({ ok: false, message: "الإرشاد غير موجود." });
+    const removed = tips.splice(idx, 1)[0];
+    await writeJson(TIPS_DB, tips);
+    res.json({ ok: true, message: "تم حذف الإرشاد", data: removed });
+  } catch (err) {
+    console.error("DELETE /tips/:id:", err);
+    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+  }
 });
 
-app.get("/", (req, res) =>
-  res.send("✅ السيرفر يعمل – موقع الشيخ موسى الخلايلة")
-);
+app.get("/", (req, res) => res.send("✅ السيرفر يعمل – موقع الشيخ موسى الخلايلة"));
 
-app.listen(4000, () =>
-  console.log("🚀 السيرفر يعمل على http://localhost:4000")
-);
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => console.log(`🚀 السيرفر يعمل على http://localhost:${PORT}`));
