@@ -1,18 +1,15 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "Backend for Sheikh Mousa site (posts + cloudinary)",
+  "description": "Backend for Sheikh Mousa site",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "type": "commonjs",
   "dependencies": {
-    "cloudinary": "^1.41.3",
     "cors": "^2.8.5",
     "express": "^5.1.0",
-    "multer": "^2.0.2",
-    "streamifier": "^0.1.1",
     "uuid": "^9.0.0"
   }
 }
