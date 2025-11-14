@@ -1,13 +1,9 @@
-// server.js (دعم posts + upload to Cloudinary + admin password change)
+// server.js (محدّث لدعم posts + تغيير كلمة المرور كما قبل)
 const express = require("express");
 const fs = require("fs").promises;
 const cors = require("cors");
 const { v4: uuidv4 } = require("uuid");
 const path = require("path");
-
-const multer = require("multer");
-const streamifier = require("streamifier");
-const cloudinary = require("cloudinary").v2;
 
 const app = express();
 app.use(cors());
@@ -19,24 +15,8 @@ const TIPS_DB = path.join(DATA_DIR, "tips.json");
 const POSTS_DB = path.join(DATA_DIR, "posts.json");
 const ADMIN_FILE = path.join(DATA_DIR, "admin.json");
 
-// Cloudinary configuration from env (optional)
-if (process.env.CLOUDINARY_URL) {
-  cloudinary.config({ cloudinary_url: process.env.CLOUDINARY_URL });
-} else if (process.env.CLOUDINARY_CLOUD_NAME) {
-  cloudinary.config({
-    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-    api_key: process.env.CLOUDINARY_API_KEY,
-    api_secret: process.env.CLOUDINARY_API_SECRET,
-  });
-}
-
-// fallback env pass (إذا لم يُوجد admin.json)
 const ENV_ADMIN_PASS = process.env.ADMIN_PASS || "sayaf1820";
 
-// multer in-memory (لرفع الفيديو إلى Cloudinary)
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 300 * 1024 * 1024 } });
-
-// --- helpers لقراءة وكتابة JSON ---
 async function readJson(filePath) {
   try {
     const txt = await fs.readFile(filePath, "utf8");
@@ -49,8 +29,6 @@ async function readJson(filePath) {
 async function writeJson(filePath, data) {
   await fs.writeFile(filePath, JSON.stringify(data, null, 2), "utf8");
 }
-
-// الحصول على كلمة المشرف الحالية (تقرأ من admin.json إن وُجد، وإلا من env)
 async function getStoredAdminPass() {
   try {
     const obj = await readJson(ADMIN_FILE);
@@ -60,8 +38,6 @@ async function getStoredAdminPass() {
   }
   return ENV_ADMIN_PASS;
 }
-
-// يتحقق من صلاحية الطلب (يسمح بكل من x-admin-pass header أو body.password)
 async function verifyAdmin(req) {
   const provided = req.headers["x-admin-pass"] || (req.body && req.body.password);
   if (!provided) return false;
@@ -69,35 +45,30 @@ async function verifyAdmin(req) {
   return provided === current;
 }
 
-// تهيئة ملفات DB إن لم توجد
+// init DB files if missing
 (async () => {
   await Promise.all([
     fs.access(BOOKS_DB).catch(() => fs.writeFile(BOOKS_DB, "[]", "utf8")),
     fs.access(TIPS_DB).catch(() => fs.writeFile(TIPS_DB, "[]", "utf8")),
     fs.access(POSTS_DB).catch(() => fs.writeFile(POSTS_DB, "[]", "utf8")),
   ]);
-  // لا ننشئ admin.json تلقائياً لأن البيئة قد تستخدم ENV_ADMIN_PASS
 })();
 
-/* ===== Helpers for array files ===== */
 async function readArray(file) {
   const txt = await readJson(file);
   return Array.isArray(txt) ? txt : [];
 }
 
-/* ===== Books (same as before) ===== */
+/* ===== Books (unchanged structure but endpoints kept) ===== */
 app.get("/books", async (req, res) => {
   try {
     const books = await readArray(BOOKS_DB);
-    const normalized = books.map(b => (b.id ? b : { id: uuidv4(), ...b }));
-    await writeJson(BOOKS_DB, normalized);
-    res.json({ ok: true, data: normalized });
+    res.json({ ok: true, data: books });
   } catch (err) {
     console.error("GET /books:", err);
     res.status(500).json({ ok: false, message: "خطأ في الخادم" });
   }
 });
-
 app.post("/books", async (req, res) => {
   try {
     if (!(await verifyAdmin(req))) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
@@ -113,7 +84,6 @@ app.post("/books", async (req, res) => {
     res.status(500).json({ ok: false, message: "خطأ في الخادم" });
   }
 });
-
 app.put("/books/:id", async (req, res) => {
   try {
     if (!(await verifyAdmin(req))) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
@@ -131,7 +101,6 @@ app.put("/books/:id", async (req, res) => {
     res.status(500).json({ ok: false, message: "خطأ في الخادم" });
   }
 });
-
 app.delete("/books/:id", async (req, res) => {
   try {
     if (!(await verifyAdmin(req))) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
@@ -148,19 +117,16 @@ app.delete("/books/:id", async (req, res) => {
   }
 });
 
-/* ===== Tips ===== */
+/* ===== Tips (unchanged endpoints) ===== */
 app.get("/tips", async (req, res) => {
   try {
     const tips = await readArray(TIPS_DB);
-    const normalized = tips.map(t => (t.id ? t : { id: uuidv4(), ...t }));
-    await writeJson(TIPS_DB, normalized);
-    res.json({ ok: true, data: normalized });
+    res.json({ ok: true, data: tips });
   } catch (err) {
     console.error("GET /tips:", err);
     res.status(500).json({ ok: false, message: "خطأ في الخادم" });
   }
 });
-
 app.post("/tips", async (req, res) => {
   try {
     if (!(await verifyAdmin(req))) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
@@ -175,7 +141,6 @@ app.post("/tips", async (req, res) => {
     res.status(500).json({ ok: false, message: "خطأ في الخادم" });
   }
 });
-
 app.put("/tips/:id", async (req, res) => {
   try {
     if (!(await verifyAdmin(req))) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
@@ -192,7 +157,6 @@ app.put("/tips/:id", async (req, res) => {
     res.status(500).json({ ok: false, message: "خطأ في الخادم" });
   }
 });
-
 app.delete("/tips/:id", async (req, res) => {
   try {
     if (!(await verifyAdmin(req))) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
@@ -209,30 +173,29 @@ app.delete("/tips/:id", async (req, res) => {
   }
 });
 
-/* ===== Posts (المشاركات - فيديوهات) ===== */
+/* ===== Posts (new) =====
+   Schema: { id, title, description, videoUrl, createdAt, updatedAt? }
+*/
 app.get("/posts", async (req, res) => {
   try {
     const posts = await readArray(POSTS_DB);
-    const normalized = posts.map(p => (p.id ? p : { id: uuidv4(), ...p }));
-    await writeJson(POSTS_DB, normalized);
-    res.json({ ok: true, data: normalized });
+    res.json({ ok: true, data: posts });
   } catch (err) {
     console.error("GET /posts:", err);
     res.status(500).json({ ok: false, message: "خطأ في الخادم" });
   }
 });
 
-// إنشاء مشاركة (يمكن إرسال videoUrl بدلاً من رفع ملف)
 app.post("/posts", async (req, res) => {
   try {
     if (!(await verifyAdmin(req))) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
     const { title, description, videoUrl } = req.body;
-    if (!title || !videoUrl) return res.status(400).json({ ok: false, message: "الرجاء إدخال عنوان ورابط/فيديو." });
+    if (!title || !videoUrl) return res.status(400).json({ ok: false, message: "الرجاء إدخال العنوان والرابط للفيديو." });
     const posts = await readArray(POSTS_DB);
     const newPost = { id: uuidv4(), title, description: description || "", videoUrl, createdAt: Date.now() };
     posts.unshift(newPost); // أحدث أولاً
     await writeJson(POSTS_DB, posts);
-    res.json({ ok: true, message: "تمت إضافة المشاركة", data: newPost });
+    res.json({ ok: true, message: "تمت إضافة المشاركة بنجاح", data: newPost });
   } catch (err) {
     console.error("POST /posts:", err);
     res.status(500).json({ ok: false, message: "خطأ في الخادم" });
@@ -247,7 +210,8 @@ app.put("/posts/:id", async (req, res) => {
     const idx = posts.findIndex(p => p.id === id);
     if (idx === -1) return res.status(404).json({ ok: false, message: "المشاركة غير موجودة." });
     posts[idx].title = req.body.title || posts[idx].title;
-    posts[idx].description = (req.body.description !== undefined) ? req.body.description : posts[idx].description;
+    posts[idx].description = req.body.description || posts[idx].description;
+    if (req.body.videoUrl) posts[idx].videoUrl = req.body.videoUrl;
     posts[idx].updatedAt = Date.now();
     await writeJson(POSTS_DB, posts);
     res.json({ ok: true, message: "تم تعديل المشاركة", data: posts[idx] });
@@ -273,44 +237,7 @@ app.delete("/posts/:id", async (req, res) => {
   }
 });
 
-/* ===== Upload video to Cloudinary (ملف) =====
-   POST /uploadVideo
-   FormData: file=<video file>
-   header: x-admin-pass
-   Response: { ok: true, url: "https://..." }
-*/
-app.post("/uploadVideo", upload.single("file"), async (req, res) => {
-  try {
-    if (!(await verifyAdmin(req))) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
-    if (!req.file) return res.status(400).json({ ok: false, message: "لم يُرفع ملف." });
-
-    if (!cloudinary.config().cloud_name) {
-      return res.status(500).json({ ok: false, message: "Cloudinary غير مُكوّن على الخادم. عيّن متغيرات البيئة أولاً." });
-    }
-
-    // رفع كـ video عبر upload_stream
-    const stream = cloudinary.uploader.upload_stream(
-      { resource_type: "video", folder: "site_posts" },
-      (error, result) => {
-        if (error) {
-          console.error("Cloudinary upload error:", error);
-          return res.status(500).json({ ok: false, message: "فشل رفع الفيديو إلى Cloudinary." });
-        }
-        res.json({ ok: true, url: result.secure_url, raw: result });
-      }
-    );
-    streamifier.createReadStream(req.file.buffer).pipe(stream);
-  } catch (err) {
-    console.error("POST /uploadVideo:", err);
-    res.status(500).json({ ok: false, message: "خطأ في الخادم أثناء الرفع." });
-  }
-});
-
-/* ===== Admin: تغيير كلمة المرور =====
-   POST /admin/change-password
-   header x-admin-pass: currentPassword
-   body: { newPassword: "..." }
-*/
+/* ===== Admin: تغيير كلمة المرور ===== */
 app.post("/admin/change-password", async (req, res) => {
   try {
     if (!(await verifyAdmin(req))) return res.status(403).json({ ok: false, message: "كلمة السر الحالية غير صحيحة." });
