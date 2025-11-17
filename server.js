@@ -1,4 +1,4 @@
-// server.js (محدّث: users, auth, sessions, roles)
+// server.js (نهائي: users, auth, sessions, roles)
 const express = require("express");
 const fs = require("fs").promises;
 const cors = require("cors");
@@ -91,7 +91,6 @@ async function saveSessions(sessions) {
 async function createSession(username, role) {
   const token = uuidv4();
   const sessions = await loadSessions();
-  // store minimal info; you can add expiry if desired
   sessions[token] = { username, role, createdAt: Date.now() };
   await saveSessions(sessions);
   return token;
@@ -260,7 +259,6 @@ app.post("/auth/change-password/:username", authenticate, requireRole("superadmi
 app.get("/auth/users", authenticate, requireRole("superadmin"), async (req, res) => {
   try {
     const users = await readArray(USERS_FILE);
-    // don't send password hashes
     const out = users.map(u => ({ username: u.username, role: u.role, createdAt: u.createdAt }));
     res.json({ ok: true, data: out });
   } catch (err) {
@@ -273,7 +271,6 @@ app.get("/auth/users", authenticate, requireRole("superadmin"), async (req, res)
    Updated to require token-based admin or legacy behavior.
 */
 async function requireAnyAdminMiddleware(req, res, next) {
-  // allow token-based admin
   const token = req.headers["x-auth-token"];
   if (token) {
     const sess = await getSessionByToken(token);
@@ -282,7 +279,6 @@ async function requireAnyAdminMiddleware(req, res, next) {
       return next();
     }
   }
-  // legacy fallback
   const provided = req.headers["x-admin-pass"] || (req.body && req.body.password);
   if (provided) {
     const current = await getStoredAdminPass();
@@ -460,7 +456,6 @@ app.delete("/posts/:id", requireAnyAdminMiddleware, async (req, res) => {
 */
 app.post("/admin/change-password", async (req, res) => {
   try {
-    // verify legacy method
     const provided = req.headers["x-admin-pass"] || (req.body && req.body.password);
     const current = await getStoredAdminPass();
     if (!provided || provided !== current) return res.status(403).json({ ok: false, message: "كلمة السر الحالية غير صحيحة." });
@@ -468,9 +463,7 @@ app.post("/admin/change-password", async (req, res) => {
     if (!newPass || typeof newPass !== "string" || newPass.length < 4) {
       return res.status(400).json({ ok: false, message: "أدخل كلمة مرور جديدة صحيحة (طول ≥4)." });
     }
-    // update legacy admin.json
     await writeJson(ADMIN_FILE, { password: newPass, updatedAt: Date.now() });
-    // also update superadmin user if exists
     const users = await readArray(USERS_FILE);
     const superIdx = users.findIndex(u => u.role === "superadmin");
     if (superIdx !== -1) {
