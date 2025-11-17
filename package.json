@@ -1,16 +1,15 @@
 {
   "name": "backend",
   "version": "1.0.0",
-  "description": "Backend for Sheikh Mousa site",
+  "description": "Backend for Sheikh Mousa site (legacy, x-admin-pass)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "type": "commonjs",
   "dependencies": {
-    "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
-    "express": "^5.1.0",
+    "express": "^4.18.2",
     "uuid": "^9.0.0"
   }
 }
