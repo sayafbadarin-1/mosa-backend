@@ -3,6 +3,7 @@ const express = require("express");
 const fs = require("fs").promises;
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
+const https = require("https");
 
 const app = express();
 app.use(express.json());
@@ -67,7 +68,30 @@ async function verifyAdminProvided(req) {
   ]);
 })();
 
-// ====== مسارات الكتب ======
+/* ====== مسار وسيط لخلاصة يوتيوب (لحل مشاكل CORS / rate-limits) ======
+   GET /youtube-feed?channelId=<CHANNEL_ID>
+   يرجع XML الخام المستلم من youtube.com/feeds/videos.xml
+*/
+app.get("/youtube-feed", (req, res) => {
+  const channelId = req.query.channelId;
+  if (!channelId) return res.status(400).json({ ok: false, message: "missing channelId" });
+
+  const rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
+
+  https.get(rssUrl, (resp) => {
+    let data = "";
+    resp.on("data", chunk => data += chunk);
+    resp.on("end", () => {
+      res.setHeader("Content-Type", "application/xml; charset=utf-8");
+      res.send(data);
+    });
+  }).on("error", (err) => {
+    console.error("youtube-feed err:", err);
+    res.status(502).json({ ok: false, message: "فشل جلب الخلاصة من يوتيوب" });
+  });
+});
+
+/* ====== مسارات الكتب ====== */
 app.get("/books", async (req, res) => {
   try {
     const books = await readArray(BOOKS_DB);
@@ -128,7 +152,7 @@ app.delete("/books/:id", async (req, res) => {
   }
 });
 
-// ====== مسارات الإرشادات (tips) ======
+/* ====== مسارات الإرشادات (tips) ====== */
 app.get("/tips", async (req, res) => {
   try {
     const tips = await readArray(TIPS_DB);
@@ -187,8 +211,7 @@ app.delete("/tips/:id", async (req, res) => {
   }
 });
 
-// ====== مسارات المشاركات (posts) ======
-/*
+/* ====== مسارات المشاركات (posts) ======
   Schema: { id, title, description, videoUrl, createdAt, updatedAt? }
 */
 app.get("/posts", async (req, res) => {
@@ -252,9 +275,10 @@ app.delete("/posts/:id", async (req, res) => {
   }
 });
 
-// ====== تغيير كلمة المرور للمشرف (legacy) ======
-// يطلب هيدر x-admin-pass: currentPassword
-// وجسم يحتوي newPassword
+/* ====== تغيير كلمة المرور للمشرف (legacy) ======
+   يطلب هيدر x-admin-pass: currentPassword
+   وجسم يحتوي newPassword
+*/
 app.post("/admin/change-password", async (req, res) => {
   try {
     if (!(await verifyAdminProvided(req))) return res.status(403).json({ ok: false, message: "كلمة السر الحالية غير صحيحة." });
