@@ -1,81 +1,67 @@
-// server.js - نسخة "القديم" المتوافقة مع main.js الأخير (x-admin-pass)
+require("dotenv").config();
 const express = require("express");
-const fs = require("fs").promises;
-const path = require("path");
-const { v4: uuidv4 } = require("uuid");
+const mongoose = require("mongoose");
+const cors = require("cors");
+const helmet = require("helmet"); // حماية إضافية للهيدرز
 const https = require("https");
 
 const app = express();
+
+// --- الإعدادات والوسائط (Middleware) ---
+app.use(cors());
+app.use(helmet()); // تحسين الأمان
 app.use(express.json());
-app.use(require("cors")());
 
-// ملفات البيانات في نفس مجلد المشروع
-const DATA_DIR = ".";
-const BOOKS_DB = path.join(DATA_DIR, "books.json");
-const TIPS_DB = path.join(DATA_DIR, "tips.json");
-const POSTS_DB = path.join(DATA_DIR, "posts.json");
-const ADMIN_FILE = path.join(DATA_DIR, "admin.json");
+// --- الاتصال بقاعدة البيانات MongoDB ---
+mongoose
+  .connect(process.env.MONGO_URI)
+  .then(() => console.log("✅ تم الاتصال بقاعدة بيانات MongoDB بنجاح"))
+  .catch((err) => console.error("❌ خطأ في الاتصال بقاعدة البيانات:", err));
 
-// كلمة المرور الافتراضية (تُستخدم إذا لم يوجد admin.json)
-// افتراضياً: sayaf1820
-const ENV_ADMIN_PASS = process.env.ADMIN_PASS || "sayaf1820";
+// --- تعريف الجداول (Schemas & Models) ---
 
-// --- أدوات قراءة/كتابة JSON بسيطة ---
-async function readJson(filePath) {
-  try {
-    const txt = await fs.readFile(filePath, "utf8");
-    return JSON.parse(txt || "null");
-  } catch (err) {
-    if (err && err.code === "ENOENT") return null;
-    throw err;
+// جدول الكتب
+const BookSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  url: { type: String, required: true },
+}, { timestamps: true }); // يضيف createdAt و updatedAt تلقائياً
+
+const Book = mongoose.model("Book", BookSchema);
+
+// جدول الإرشادات
+const TipSchema = new mongoose.Schema({
+  text: { type: String, required: true },
+}, { timestamps: true });
+
+const Tip = mongoose.model("Tip", TipSchema);
+
+// جدول المشاركات
+const PostSchema = new mongoose.Schema({
+  title: { type: String, required: true },
+  description: String,
+  videoUrl: String,
+}, { timestamps: true });
+
+const Post = mongoose.model("Post", PostSchema);
+
+// --- التحقق من المشرف ---
+const verifyAdmin = (req, res, next) => {
+  const providedPass = req.headers["x-admin-pass"] || req.body.password;
+  const adminPass = process.env.ADMIN_PASS || "sayaf1820";
+
+  if (providedPass === adminPass) {
+    next();
+  } else {
+    res.status(403).json({ ok: false, message: "غير مصرح: كلمة المرور خاطئة" });
   }
-}
-async function writeJson(filePath, data) {
-  await fs.writeFile(filePath, JSON.stringify(data, null, 2), "utf8");
-}
-async function readArray(filePath) {
-  const j = await readJson(filePath);
-  return Array.isArray(j) ? j : [];
-}
+};
 
-// --- استرجاع كلمة مرور المشرف من ملف admin.json أو ENV ---
-async function getStoredAdminPass() {
-  try {
-    const obj = await readJson(ADMIN_FILE);
-    if (obj && typeof obj.password === "string") return obj.password;
-  } catch (err) {
-    console.error("خطأ قراءة admin.json:", err);
-  }
-  return ENV_ADMIN_PASS;
-}
+// --- المسارات (Routes) ---
 
-// --- وظيفة تحقق المشرف ---
-// يقبل الهيدر "x-admin-pass" أو وجود password في body (للنداءات القديمة)
-async function verifyAdminProvided(req) {
-  const provided = req.headers["x-admin-pass"] || (req.body && req.body.password);
-  if (!provided) return false;
-  const current = await getStoredAdminPass();
-  return provided === current;
-}
-
-// --- تهيئة ملفات DB إن لم تكن موجودة ---
-(async () => {
-  await Promise.all([
-    fs.access(BOOKS_DB).catch(() => fs.writeFile(BOOKS_DB, "[]", "utf8")),
-    fs.access(TIPS_DB).catch(() => fs.writeFile(TIPS_DB, "[]", "utf8")),
-    fs.access(POSTS_DB).catch(() => fs.writeFile(POSTS_DB, "[]", "utf8")),
-    fs.access(ADMIN_FILE).catch(() => fs.writeFile(ADMIN_FILE, JSON.stringify({ password: ENV_ADMIN_PASS }, null, 2), "utf8")),
-  ]);
-})();
-
-/* ====== مسار وسيط لخلاصة يوتيوب (لحل مشاكل CORS / rate-limits) ======
-   GET /youtube-feed?channelId=<CHANNEL_ID>
-   يرجع XML الخام المستلم من youtube.com/feeds/videos.xml
-*/
+// 1. يوتيوب بروكسي (كما هو)
 app.get("/youtube-feed", (req, res) => {
   const channelId = req.query.channelId;
   if (!channelId) return res.status(400).json({ ok: false, message: "missing channelId" });
-
   const rssUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
 
   https.get(rssUrl, (resp) => {
@@ -86,217 +72,123 @@ app.get("/youtube-feed", (req, res) => {
       res.send(data);
     });
   }).on("error", (err) => {
-    console.error("youtube-feed err:", err);
     res.status(502).json({ ok: false, message: "فشل جلب الخلاصة من يوتيوب" });
   });
 });
 
-/* ====== مسارات الكتب ====== */
+// 2. مسارات الكتب (Books)
 app.get("/books", async (req, res) => {
   try {
-    const books = await readArray(BOOKS_DB);
+    const books = await Book.find().sort({ createdAt: -1 }); // الأحدث أولاً
     res.json({ ok: true, data: books });
   } catch (err) {
-    console.error("GET /books error:", err);
-    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+    res.status(500).json({ ok: false, message: err.message });
   }
 });
 
-app.post("/books", async (req, res) => {
+app.post("/books", verifyAdmin, async (req, res) => {
   try {
-    if (!(await verifyAdminProvided(req))) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
     const { title, url } = req.body;
-    if (!title || !url) return res.status(400).json({ ok: false, message: "الرجاء إدخال الاسم والرابط." });
-    const books = await readArray(BOOKS_DB);
-    const newBook = { id: uuidv4(), title, url, createdAt: Date.now() };
-    books.push(newBook);
-    await writeJson(BOOKS_DB, books);
-    res.json({ ok: true, message: "تمت إضافة الكتاب بنجاح", data: newBook });
+    if (!title || !url) return res.status(400).json({ ok: false, message: "البيانات ناقصة" });
+    
+    const newBook = await Book.create({ title, url });
+    res.json({ ok: true, message: "تمت إضافة الكتاب", data: newBook });
   } catch (err) {
-    console.error("POST /books:", err);
-    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+    res.status(500).json({ ok: false, message: err.message });
   }
 });
 
-app.put("/books/:id", async (req, res) => {
+app.delete("/books/:id", verifyAdmin, async (req, res) => {
   try {
-    if (!(await verifyAdminProvided(req))) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
-    const id = req.params.id;
-    const books = await readArray(BOOKS_DB);
-    const idx = books.findIndex(b => b.id === id);
-    if (idx === -1) return res.status(404).json({ ok: false, message: "الكتاب غير موجود." });
-    books[idx].title = req.body.title || books[idx].title;
-    books[idx].url = req.body.url || books[idx].url;
-    books[idx].updatedAt = Date.now();
-    await writeJson(BOOKS_DB, books);
-    res.json({ ok: true, message: "تم تعديل الكتاب", data: books[idx] });
+    const deleted = await Book.findByIdAndDelete(req.params.id);
+    if (!deleted) return res.status(404).json({ ok: false, message: "الكتاب غير موجود" });
+    res.json({ ok: true, message: "تم حذف الكتاب" });
   } catch (err) {
-    console.error("PUT /books/:id:", err);
-    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+    res.status(500).json({ ok: false, message: "خطأ في المعرف أو الخادم" });
   }
 });
 
-app.delete("/books/:id", async (req, res) => {
-  try {
-    if (!(await verifyAdminProvided(req))) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
-    const id = req.params.id;
-    const books = await readArray(BOOKS_DB);
-    const idx = books.findIndex(b => b.id === id);
-    if (idx === -1) return res.status(404).json({ ok: false, message: "الكتاب غير موجود." });
-    const removed = books.splice(idx, 1)[0];
-    await writeJson(BOOKS_DB, books);
-    res.json({ ok: true, message: "تم حذف الكتاب", data: removed });
-  } catch (err) {
-    console.error("DELETE /books/:id:", err);
-    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
-  }
-});
-
-/* ====== مسارات الإرشادات (tips) ====== */
+// 3. مسارات الإرشادات (Tips)
 app.get("/tips", async (req, res) => {
   try {
-    const tips = await readArray(TIPS_DB);
+    const tips = await Tip.find().sort({ createdAt: -1 });
     res.json({ ok: true, data: tips });
   } catch (err) {
-    console.error("GET /tips:", err);
-    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+    res.status(500).json({ ok: false, message: err.message });
   }
 });
 
-app.post("/tips", async (req, res) => {
+app.post("/tips", verifyAdmin, async (req, res) => {
   try {
-    if (!(await verifyAdminProvided(req))) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
-    const text = req.body.text || "";
-    const tips = await readArray(TIPS_DB);
-    const newTip = { id: uuidv4(), text, createdAt: Date.now() };
-    tips.push(newTip);
-    await writeJson(TIPS_DB, tips);
-    res.json({ ok: true, message: "تمت إضافة الإرشاد بنجاح", data: newTip });
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ ok: false, message: "النص مطلوب" });
+    
+    const newTip = await Tip.create({ text });
+    res.json({ ok: true, message: "تمت الإضافة", data: newTip });
   } catch (err) {
-    console.error("POST /tips:", err);
-    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+    res.status(500).json({ ok: false, message: err.message });
   }
 });
 
-app.put("/tips/:id", async (req, res) => {
+app.put("/tips/:id", verifyAdmin, async (req, res) => {
   try {
-    if (!(await verifyAdminProvided(req))) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
-    const id = req.params.id;
-    const tips = await readArray(TIPS_DB);
-    const idx = tips.findIndex(t => t.id === id);
-    if (idx === -1) return res.status(404).json({ ok: false, message: "الإرشاد غير موجود." });
-    tips[idx].text = req.body.text || tips[idx].text;
-    tips[idx].updatedAt = Date.now();
-    await writeJson(TIPS_DB, tips);
-    res.json({ ok: true, message: "تم تعديل الإرشاد", data: tips[idx] });
+    const updated = await Tip.findByIdAndUpdate(req.params.id, { text: req.body.text }, { new: true });
+    if (!updated) return res.status(404).json({ ok: false, message: "غير موجود" });
+    res.json({ ok: true, message: "تم التعديل", data: updated });
   } catch (err) {
-    console.error("PUT /tips/:id:", err);
-    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+    res.status(500).json({ ok: false, message: err.message });
   }
 });
 
-app.delete("/tips/:id", async (req, res) => {
+app.delete("/tips/:id", verifyAdmin, async (req, res) => {
   try {
-    if (!(await verifyAdminProvided(req))) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
-    const id = req.params.id;
-    const tips = await readArray(TIPS_DB);
-    const idx = tips.findIndex(t => t.id === id);
-    if (idx === -1) return res.status(404).json({ ok: false, message: "الإرشاد غير موجود." });
-    const removed = tips.splice(idx, 1)[0];
-    await writeJson(TIPS_DB, tips);
-    res.json({ ok: true, message: "تم حذف الإرشاد", data: removed });
+    await Tip.findByIdAndDelete(req.params.id);
+    res.json({ ok: true, message: "تم الحذف" });
   } catch (err) {
-    console.error("DELETE /tips/:id:", err);
-    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+    res.status(500).json({ ok: false, message: err.message });
   }
 });
 
-/* ====== مسارات المشاركات (posts) ======
-  Schema: { id, title, description, videoUrl, createdAt, updatedAt? }
-*/
+// 4. مسارات المشاركات (Posts)
 app.get("/posts", async (req, res) => {
   try {
-    const posts = await readArray(POSTS_DB);
+    const posts = await Post.find().sort({ createdAt: -1 });
     res.json({ ok: true, data: posts });
   } catch (err) {
-    console.error("GET /posts:", err);
-    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+    res.status(500).json({ ok: false, message: err.message });
   }
 });
 
-app.post("/posts", async (req, res) => {
+app.post("/posts", verifyAdmin, async (req, res) => {
   try {
-    if (!(await verifyAdminProvided(req))) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
     const { title, description, videoUrl } = req.body;
-    if (!title) return res.status(400).json({ ok: false, message: "الرجاء إدخال العنوان." });
-    const posts = await readArray(POSTS_DB);
-    const newPost = { id: uuidv4(), title, description: description || "", videoUrl: videoUrl || "", createdAt: Date.now() };
-    posts.unshift(newPost); // أحدث أولاً
-    await writeJson(POSTS_DB, posts);
-    res.json({ ok: true, message: "تمت إضافة المشاركة بنجاح", data: newPost });
+    const newPost = await Post.create({ title, description, videoUrl });
+    res.json({ ok: true, message: "تم النشر", data: newPost });
   } catch (err) {
-    console.error("POST /posts:", err);
-    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+    res.status(500).json({ ok: false, message: err.message });
   }
 });
 
-app.put("/posts/:id", async (req, res) => {
+app.put("/posts/:id", verifyAdmin, async (req, res) => {
   try {
-    if (!(await verifyAdminProvided(req))) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
-    const id = req.params.id;
-    const posts = await readArray(POSTS_DB);
-    const idx = posts.findIndex(p => p.id === id);
-    if (idx === -1) return res.status(404).json({ ok: false, message: "المشاركة غير موجودة." });
-    posts[idx].title = req.body.title || posts[idx].title;
-    posts[idx].description = req.body.description || posts[idx].description;
-    if (req.body.videoUrl) posts[idx].videoUrl = req.body.videoUrl;
-    posts[idx].updatedAt = Date.now();
-    await writeJson(POSTS_DB, posts);
-    res.json({ ok: true, message: "تم تعديل المشاركة", data: posts[idx] });
+    const updated = await Post.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    res.json({ ok: true, message: "تم التعديل", data: updated });
   } catch (err) {
-    console.error("PUT /posts/:id:", err);
-    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+    res.status(500).json({ ok: false, message: err.message });
   }
 });
 
-app.delete("/posts/:id", async (req, res) => {
+app.delete("/posts/:id", verifyAdmin, async (req, res) => {
   try {
-    if (!(await verifyAdminProvided(req))) return res.status(403).json({ ok: false, message: "كلمة السر غير صحيحة." });
-    const id = req.params.id;
-    const posts = await readArray(POSTS_DB);
-    const idx = posts.findIndex(p => p.id === id);
-    if (idx === -1) return res.status(404).json({ ok: false, message: "المشاركة غير موجودة." });
-    const removed = posts.splice(idx, 1)[0];
-    await writeJson(POSTS_DB, posts);
-    res.json({ ok: true, message: "تم حذف المشاركة", data: removed });
+    await Post.findByIdAndDelete(req.params.id);
+    res.json({ ok: true, message: "تم الحذف" });
   } catch (err) {
-    console.error("DELETE /posts/:id:", err);
-    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
+    res.status(500).json({ ok: false, message: err.message });
   }
 });
 
-/* ====== تغيير كلمة المرور للمشرف (legacy) ======
-   يطلب هيدر x-admin-pass: currentPassword
-   وجسم يحتوي newPassword
-*/
-app.post("/admin/change-password", async (req, res) => {
-  try {
-    if (!(await verifyAdminProvided(req))) return res.status(403).json({ ok: false, message: "كلمة السر الحالية غير صحيحة." });
-    const newPass = req.body.newPassword;
-    if (!newPass || typeof newPass !== "string" || newPass.length < 4) {
-      return res.status(400).json({ ok: false, message: "أدخل كلمة مرور جديدة صحيحة (طول ≥4)." });
-    }
-    await writeJson(ADMIN_FILE, { password: newPass, updatedAt: Date.now() });
-    res.json({ ok: true, message: "تم تغيير كلمة المرور بنجاح." });
-  } catch (err) {
-    console.error("POST /admin/change-password:", err);
-    res.status(500).json({ ok: false, message: "خطأ في الخادم" });
-  }
-});
+// المسار الرئيسي
+app.get("/", (req, res) => res.send("✅ Server is running safely with MongoDB"));
 
-// basic root
-app.get("/", (req, res) => res.send("✅ السيرفر يعمل – موقع الشيخ موسى أحمد الخلايلة"));
-
-// start
 const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`🚀 السيرفر يعمل على http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
