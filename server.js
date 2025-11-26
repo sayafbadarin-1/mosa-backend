@@ -85,6 +85,10 @@ app.delete("/tips/:id", verifyAdmin, async (req, res) => { await Tip.findByIdAnd
 app.get("/posts", async (req, res) => res.json({ ok: true, data: await Post.find().sort({createdAt:-1}) }));
 app.post("/posts", verifyAdmin, async (req, res) => res.json({ ok: true, data: await Post.create(req.body) }));
 app.delete("/posts/:id", verifyAdmin, async (req, res) => { await Post.findByIdAndDelete(req.params.id); res.json({ ok: true }); });
+// --- إضافة هذا المسار ليعرف UptimeRobot أن السيرفر يعمل ---
+app.get("/", (req, res) => res.send("✅ Server is Running!"));
 
+// --- تشغيل السيرفر ---
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`🚀 Running on port ${PORT}`));
+
