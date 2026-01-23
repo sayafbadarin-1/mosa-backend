@@ -5,6 +5,8 @@ const cors = require("cors");
 const https = require("https");
 
 const app = express();
+
+// تفعيل CORS للسماح للفرونت إند بالاتصال
 app.use(cors());
 app.use(express.json());
 
@@ -32,7 +34,6 @@ const User = mongoose.model("User", UserSchema);
 })();
 
 const Book = mongoose.model("Book", new mongoose.Schema({ title: String, url: String }, { timestamps: true }));
-// تم التعديل: إضافة imageUrl
 const Tip = mongoose.model("Tip", new mongoose.Schema({ text: String, imageUrl: String }, { timestamps: true }));
 const Post = mongoose.model("Post", new mongoose.Schema({ title: String, description: String, videoUrl: String }, { timestamps: true }));
 const Config = mongoose.model("Config", new mongoose.Schema({ key: { type: String, unique: true }, value: { type: Boolean, default: false } }));
@@ -69,7 +70,6 @@ app.post("/users", superAuth, async (req, res) => {
     await User.create(req.body); res.json({ ok: true });
   } catch(e) { res.status(500).json({ok:false}); }
 });
-// تمكين تعديل المستخدم (كلمة السر)
 app.put("/users/:id", auth, async (req, res) => {
   try { 
     await User.findByIdAndUpdate(req.params.id, req.body); res.json({ ok: true }); 
@@ -91,7 +91,7 @@ app.post("/config/maintenance", superAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-// المحتوى (تم إضافة PUT للجميع)
+// المحتوى
 app.get("/books", async (req, res) => res.json({ ok: true, data: await Book.find().sort({createdAt:-1}) }));
 app.post("/books", auth, async (req, res) => res.json({ ok: true, data: await Book.create(req.body) }));
 app.put("/books/:id", auth, async (req, res) => { await Book.findByIdAndUpdate(req.params.id, req.body); res.json({ ok: true }); });
@@ -119,3 +119,8 @@ app.get("/", (req, res) => res.send("✅ Server Running!"));
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`🚀 ${PORT}`));
+
+// ============================================
+// هام جداً لـ Vercel
+// ============================================
+module.exports = app;
